@@ -636,7 +636,7 @@ footer {
     <li><a href="#portfolio">STAGES</a></li>
     <li><a href="#contact">CONTACT</a></li>
   </ul>
-  <a href="mailto:Bharathsai432@gmail.com" class="nav-insert">INSERT COIN</a>
+  <a href="Bharath_Kalyan_Resume.pdf" download="Bharath_Kalyan_Resume.pdf" class="nav-insert">INSERT COIN ↓ RESUME</a>
 </nav>
 
 <!-- HERO -->
@@ -693,8 +693,31 @@ footer {
     <div class="power-badge">TOOLS: <span>&nbsp;★ UNITY &nbsp;★ UNREAL &nbsp;★ FIGMA &nbsp;★ PHOTOSHOP &nbsp;★ MIRO &nbsp;★ MACHINATIONS</span></div>
   </div>
 
-  <div class="sprite-area">🕹️</div>
   <div class="ground"></div>
+</section>
+
+
+<!-- ── ARCADE MINI-GAME ── -->
+<section id="arcade" style="background:#050505;border-top:4px solid #f9861a;border-bottom:4px solid #f9861a;padding:3rem 2rem;position:relative;z-index:1;">
+  <div style="max-width:900px;margin:0 auto;">
+    <div class="sec-header fade-up" style="margin-bottom:1.5rem;">
+      <div class="sec-num" style="background:#f9861a;">🕹️</div>
+      <div class="sec-title">ARCADE MINI-GAME</div>
+      <div class="sec-line"></div>
+    </div>
+    <div style="font-family:'Press Start 2P',monospace;font-size:7px;color:#7e7e7e;margin-bottom:1rem;letter-spacing:0.1em;">
+      PRESS <span style="color:#f9861a;">SPACE</span> / TAP TO JUMP &nbsp;·&nbsp; COLLECT <span style="color:#ffe600;">★ COINS</span> &nbsp;·&nbsp; AVOID ENEMIES &nbsp;·&nbsp; 3 LIVES
+    </div>
+    <div style="position:relative;border:4px solid #f9861a;box-shadow:6px 6px 0 #663300;background:#0b0a15;overflow:hidden;">
+      <!-- scanline overlay -->
+      <div style="position:absolute;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.08) 0px,rgba(0,0,0,0.08) 1px,transparent 1px,transparent 3px);"></div>
+      <canvas id="arcade-canvas" style="display:block;width:100%;image-rendering:pixelated;"></canvas>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:0.8rem;font-family:'Press Start 2P',monospace;font-size:7px;color:#7e7e7e;">
+      <span>SPACE / CLICK / TAP = JUMP</span>
+      <span style="color:#f9861a;">DOUBLE JUMP ENABLED</span>
+    </div>
+  </div>
 </section>
 
 <!-- ABOUT -->
@@ -1062,6 +1085,412 @@ document.addEventListener('keydown', e => {
     setTimeout(() => msg.remove(), 2500);
   }
 });
+
+
+
+
+// ══════════════════════════════════════════
+// ARCADE MINI-GAME ENGINE
+// ══════════════════════════════════════════
+(function() {
+  const canvas = document.getElementById('arcade-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  // ── CANVAS SIZE ──
+  const W = 860, H = 200;
+  canvas.width = W;
+  canvas.height = H;
+
+  const GND = 155;
+  const GRAVITY = 0.55;
+  const JUMP_FORCE = -12;
+
+  // ── GAME STATE ──
+  let state = 'idle'; // idle | playing | gameover
+  let score = 0, hiScore = 0, lives = 3, coins = 0;
+  let speed = 3, frameCount = 0, spawnTimer = 0, spawnInterval = 90;
+  let flashTimer = 0;
+
+  // ── PLAYER ──
+  const P = {
+    x: 80, y: GND, vy: 0,
+    w: 24, h: 32,
+    jumps: 0, maxJumps: 2,
+    frame: 0, frameTick: 0,
+    hit: false, hitTimer: 0,
+    reset() {
+      this.y = GND; this.vy = 0; this.jumps = 0;
+      this.hit = false; this.hitTimer = 0;
+    }
+  };
+
+  // ── OBSTACLES ──
+  const obstacles = [];
+  // ── COINS ──
+  const coinList = [];
+  // ── PARTICLES ──
+  const particles = [];
+  // ── CLOUDS ──
+  const clouds = [
+    {x:100,y:25,w:60,speed:0.4},
+    {x:350,y:18,w:44,speed:0.3},
+    {x:620,y:30,w:52,speed:0.35},
+  ];
+  // ── STARS ──
+  const stars = Array.from({length:30},()=>({
+    x:Math.random()*W, y:Math.random()*(GND-40),
+    r:Math.random()*1.5+0.5, twinkle:Math.random()*Math.PI*2
+  }));
+
+  function jump() {
+    if (state === 'idle' || state === 'gameover') { startGame(); return; }
+    if (P.jumps < P.maxJumps) {
+      P.vy = JUMP_FORCE - (P.jumps * 1.5);
+      P.jumps++;
+      spawnParticles(P.x + P.w/2, P.y, '#f9861a', 6);
+    }
+  }
+
+  function startGame() {
+    state = 'playing';
+    score = 0; lives = 3; coins = 0; speed = 3; frameCount = 0;
+    spawnTimer = 0; spawnInterval = 90;
+    obstacles.length = 0; coinList.length = 0; particles.length = 0;
+    P.reset();
+  }
+
+  function loseLife() {
+    lives--;
+    P.hit = true; P.hitTimer = 60;
+    spawnParticles(P.x + P.w/2, P.y - P.h/2, '#ff5f56', 12);
+    flashTimer = 20;
+    if (lives <= 0) {
+      state = 'gameover';
+      if (score > hiScore) hiScore = score;
+    }
+  }
+
+  function spawnParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x, y,
+        vx: (Math.random()-0.5)*5,
+        vy: (Math.random()-0.5)*5 - 2,
+        life: 40, maxLife: 40,
+        color, size: Math.random()*6+2
+      });
+    }
+  }
+
+  // ── INPUT ──
+  document.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); jump(); } });
+  canvas.addEventListener('click', jump);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); jump(); }, {passive:false});
+
+  // ── DRAW HELPERS ──
+  function px(x,y,w,h,color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x), Math.round(y), w, h);
+  }
+
+  function drawPlayer() {
+    const x = P.x, y = P.y - P.h;
+    const alpha = P.hit ? (Math.sin(P.hitTimer*0.5)>0 ? 0.4 : 1) : 1;
+    ctx.globalAlpha = alpha;
+    const s = 4;
+    const f = P.frame;
+    const col = '#f9861a';
+    const dark = '#c06010';
+    const skin = '#ffe0b0';
+
+    // body
+    px(x+s, y+4*s, 4*s, 4*s, col);
+    // head
+    px(x+s, y, 4*s, 4*s, skin);
+    // visor/eye
+    px(x+3*s, y+s, 2*s, s, '#00f8f8');
+    px(x+3*s, y+s, s, s, '#0a0a15');
+    // helmet
+    px(x+s, y, 4*s, s, col);
+    px(x, y+s, s, 2*s, col);
+    px(x+5*s, y+s, s, 2*s, col);
+    // arms
+    px(x, y+4*s, s, 3*s, col);
+    px(x+5*s, y+4*s, s, 3*s, col);
+    // legs
+    if (P.jumps > 0) {
+      px(x+s, y+8*s, 2*s, 2*s, dark);
+      px(x+3*s, y+7*s, 2*s, 2*s, dark);
+    } else if (f % 2 === 0) {
+      px(x+s, y+8*s, 2*s, 3*s, dark);
+      px(x+3*s, y+7*s, 2*s, 2*s, dark);
+    } else {
+      px(x+s, y+7*s, 2*s, 2*s, dark);
+      px(x+3*s, y+8*s, 2*s, 3*s, dark);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawEnemy(ob) {
+    const x = ob.x, y = GND - ob.h;
+    const s = 4;
+    const type = ob.type;
+    if (type === 0) {
+      // SLIME
+      px(x+s, y, 4*s, 3*s, '#544d9d');
+      px(x, y+2*s, 6*s, 3*s, '#544d9d');
+      px(x+s, y+5*s, 4*s, s, '#544d9d');
+      px(x, y+s, s, s, '#fff'); px(x+s, y+s, s, s, '#000');
+      px(x+4*s, y+s, s, s, '#fff'); px(x+3*s, y+s, s, s, '#000');
+      // bounce
+      const bounce = Math.sin(frameCount*0.18)*2;
+      ctx.globalAlpha = 1;
+    } else if (type === 1) {
+      // GHOST
+      const gy = y + Math.sin(frameCount*0.1)*4;
+      px(x+2*s, gy, 4*s, 2*s, '#ff5f56');
+      px(x+s, gy+s, 6*s, 4*s, '#ff5f56');
+      px(x+s, gy+5*s, 6*s, s, '#ff5f56');
+      px(x, gy+5*s, s, s, '#ff5f56'); px(x+3*s, gy+5*s, 2*s, s, '#0b0a15');
+      px(x+6*s, gy+5*s, s, s, '#ff5f56');
+      // eyes
+      px(x+2*s, gy+2*s, s, s, '#fff'); px(x+2*s, gy+2*s, s, s, '#000');
+      px(x+5*s, gy+2*s, s, s, '#fff'); px(x+5*s, gy+2*s, s, s, '#000');
+    } else {
+      // SPIKE BALL
+      px(x+2*s, y+s, 4*s, 4*s, '#39ff14');
+      px(x+s, y+2*s, 6*s, 2*s, '#39ff14');
+      // spikes
+      px(x+3*s, y, s, s, '#39ff14');
+      px(x+3*s, y+6*s, s, s, '#39ff14');
+      px(x, y+3*s, s, s, '#39ff14');
+      px(x+7*s, y+3*s, s, s, '#39ff14');
+      px(x+2*s, y+s, s, s, '#0b0a15'); px(x+5*s, y+s, s, s, '#0b0a15');
+    }
+  }
+
+  function drawCoin(c) {
+    const bob = Math.sin(frameCount*0.1 + c.phase)*3;
+    ctx.fillStyle = '#ffe600';
+    ctx.shadowColor = '#ffe600';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(c.x+2, c.y+bob-2, 12, 16);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#aa9900';
+    ctx.fillRect(c.x+4, c.y+bob, 4, 4);
+    // star symbol
+    ctx.fillStyle = '#ffe600';
+    ctx.font = '10px serif';
+    ctx.fillText('★', c.x+1, c.y+bob+12);
+  }
+
+  function drawCloud(c) {
+    ctx.fillStyle = 'rgba(84,77,157,0.18)';
+    ctx.fillRect(c.x, c.y, c.w, 14);
+    ctx.fillRect(c.x+8, c.y-8, c.w-16, 12);
+    ctx.fillRect(c.x+4, c.y-4, c.w-8, 8);
+  }
+
+  function drawGround() {
+    // ground line
+    ctx.fillStyle = '#f9861a';
+    ctx.fillRect(0, GND, W, 4);
+    // moving dashes
+    ctx.fillStyle = 'rgba(249,134,26,0.3)';
+    const offset = (frameCount * speed * 0.6) % 48;
+    for (let x = -offset; x < W; x += 48) ctx.fillRect(x, GND+1, 24, 2);
+  }
+
+  function drawStars() {
+    stars.forEach(s => {
+      s.twinkle += 0.05;
+      const a = 0.3 + Math.sin(s.twinkle)*0.3;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#f9861a';
+      ctx.fillRect(s.x, s.y, s.r*2, s.r*2);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function drawParticles() {
+    particles.forEach((p,i) => {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life--;
+      ctx.globalAlpha = p.life/p.maxLife;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x-p.size/2, p.y-p.size/2, p.size, p.size);
+    });
+    ctx.globalAlpha = 1;
+    for (let i = particles.length-1; i>=0; i--) if (particles[i].life<=0) particles.splice(i,1);
+  }
+
+  function drawHUD() {
+    // score
+    ctx.fillStyle = '#f9861a';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillText('SCORE:' + String(score).padStart(5,'0'), 12, 22);
+    // hi score
+    ctx.fillStyle = '#7e7e7e';
+    ctx.fillText('BEST:' + String(hiScore).padStart(5,'0'), 12, 36);
+    // coins
+    ctx.fillStyle = '#ffe600';
+    ctx.fillText('★' + String(coins).padStart(3,'0'), W/2-40, 22);
+    // lives
+    for (let i=0; i<3; i++) {
+      ctx.fillStyle = i < lives ? '#ff5f56' : '#333';
+      ctx.fillText('♥', W-100+(i*28), 22);
+    }
+  }
+
+  function drawIdleScreen() {
+    ctx.fillStyle = 'rgba(11,10,21,0.82)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#f9861a';
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ARCADE RUNNER', W/2, H/2-30);
+    ctx.fillStyle = '#544d9d';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillText('GAME DESIGNER EDITION', W/2, H/2-10);
+    ctx.fillStyle = Math.sin(frameCount*0.1)>0 ? '#ffe600' : '#aa9900';
+    ctx.fillText('PRESS SPACE / TAP TO START', W/2, H/2+18);
+    ctx.fillStyle = '#7e7e7e';
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillText('DOUBLE JUMP · 3 LIVES · COLLECT ★ COINS', W/2, H/2+38);
+    ctx.textAlign = 'left';
+  }
+
+  function drawGameOver() {
+    ctx.fillStyle = 'rgba(11,10,21,0.88)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#ff5f56';
+    ctx.font = '16px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', W/2, H/2-40);
+    ctx.fillStyle = '#f9861a';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillText('SCORE: ' + score + '   COINS: ' + coins, W/2, H/2-12);
+    if (score >= hiScore && score > 0) {
+      ctx.fillStyle = '#ffe600';
+      ctx.fillText('★ NEW HIGH SCORE! ★', W/2, H/2+8);
+    } else {
+      ctx.fillStyle = '#7e7e7e';
+      ctx.fillText('BEST: ' + hiScore, W/2, H/2+8);
+    }
+    ctx.fillStyle = Math.sin(frameCount*0.12)>0 ? '#39ff14' : '#1a8a00';
+    ctx.fillText('PRESS SPACE / TAP TO RETRY', W/2, H/2+32);
+    ctx.textAlign = 'left';
+  }
+
+  function checkCollision(a, bx, by, bw, bh) {
+    return a.x+4 < bx+bw && a.x+a.w-4 > bx && a.y-a.h+4 < by+bh && a.y > by;
+  }
+
+  // ── MAIN LOOP ──
+  function loop() {
+    requestAnimationFrame(loop);
+    frameCount++;
+
+    // flash bg on hit
+    if (flashTimer > 0) {
+      flashTimer--;
+      ctx.fillStyle = `rgba(255,95,86,${flashTimer/20*0.3})`;
+      ctx.fillRect(0,0,W,H);
+    }
+
+    // clear
+    ctx.fillStyle = '#0b0a15';
+    ctx.fillRect(0,0,W,H);
+
+    drawStars();
+    clouds.forEach(c => {
+      c.x -= c.speed * (state==='playing'?1:0.3);
+      if (c.x < -80) c.x = W+20;
+      drawCloud(c);
+    });
+    drawGround();
+
+    if (state === 'idle') {
+      drawPlayer();
+      drawIdleScreen();
+      return;
+    }
+
+    if (state === 'gameover') {
+      drawPlayer();
+      drawParticles();
+      drawGameOver();
+      return;
+    }
+
+    // ── PLAYING ──
+
+    // player physics
+    if (!P.hit || P.hitTimer < 45) {
+      P.vy += GRAVITY;
+      P.y += P.vy;
+      if (P.y >= GND) { P.y = GND; P.vy = 0; P.jumps = 0; }
+    }
+    if (P.hit) { P.hitTimer--; if (P.hitTimer <= 0) P.hit = false; }
+
+    P.frameTick++;
+    if (P.frameTick > 8) { P.frame = (P.frame+1)%4; P.frameTick = 0; }
+
+    // spawn obstacles
+    spawnTimer++;
+    if (spawnTimer >= spawnInterval) {
+      spawnTimer = 0;
+      spawnInterval = Math.max(45, 90 - score*0.3 + Math.random()*40);
+      const h = 5 + Math.floor(Math.random()*4);
+      obstacles.push({ x: W+10, h: h*4, type: Math.floor(Math.random()*3) });
+
+      // sometimes spawn coin above obstacle
+      if (Math.random() > 0.4) {
+        coinList.push({ x: W+50+Math.random()*80, y: GND-80-Math.random()*40, phase: Math.random()*6 });
+      }
+    }
+
+    // obstacles
+    for (let i=obstacles.length-1; i>=0; i--) {
+      const ob = obstacles[i];
+      ob.x -= speed;
+      drawEnemy(ob);
+
+      // collision
+      if (!P.hit && checkCollision(P, ob.x, GND-ob.h, ob.type===1?32:28, ob.h)) {
+        loseLife();
+      }
+      if (ob.x < -40) obstacles.splice(i,1);
+    }
+
+    // coins
+    for (let i=coinList.length-1; i>=0; i--) {
+      const c = coinList[i];
+      c.x -= speed;
+      drawCoin(c);
+      // collect
+      if (P.x+P.w > c.x && P.x < c.x+16 && P.y-P.h < c.y+16 && P.y > c.y) {
+        coins++;
+        score += 5;
+        spawnParticles(c.x+8, c.y, '#ffe600', 8);
+        coinList.splice(i,1);
+        continue;
+      }
+      if (c.x < -20) coinList.splice(i,1);
+    }
+
+    drawParticles();
+    drawPlayer();
+    drawHUD();
+
+    // score & speed
+    if (frameCount % 6 === 0) score++;
+    if (frameCount % 200 === 0) speed = Math.min(speed+0.4, 10);
+  }
+
+  loop();
+})();
+
 
 // ── NAV ACTIVE ──
 const secs = document.querySelectorAll('section[id]');
